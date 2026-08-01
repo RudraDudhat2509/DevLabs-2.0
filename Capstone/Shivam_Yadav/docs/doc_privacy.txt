@@ -1,0 +1,5 @@
+Title: Patient Records and Privacy
+Patient medical records are kept confidential in accordance with HIPAA
+regulations. Patients may request a copy of their medical records through the
+patient portal or by submitting a written request to the records department.
+Processing of records requests typically takes 5 to 10 business days.
