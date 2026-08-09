@@ -1,0 +1,14 @@
+{
+    "ORD1001": {
+        "status": "Shipped",
+        "delivery": "July 12, 2026"
+    },
+    "ORD1002": {
+        "status": "Processing",
+        "delivery": "July 14, 2026"
+    },
+    "ORD1003": {
+        "status": "Delivered",
+        "delivery": "July 6, 2026"
+    }
+}
