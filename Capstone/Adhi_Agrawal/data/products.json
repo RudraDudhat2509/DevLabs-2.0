@@ -1,0 +1,17 @@
+{
+    "Laptop": {
+        "price": "₹55,000",
+        "category": "Electronics",
+        "availability": "In stock"
+    },
+    "Headphones": {
+        "price": "₹2,500",
+        "category": "Audio",
+        "availability": "In stock"
+    },
+    "Keyboard": {
+        "price": "₹1,800",
+        "category": "Computer Accessories",
+        "availability": "Out of stock"
+    }
+}
