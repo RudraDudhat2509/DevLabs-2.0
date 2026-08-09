@@ -1,0 +1,10 @@
+Payment Policy
+
+Customers can use the payment methods supported
+during checkout.
+
+Payment confirmation should be received before an
+order is considered successfully placed.
+
+If money is deducted but an order is not created,
+the customer should contact support.
