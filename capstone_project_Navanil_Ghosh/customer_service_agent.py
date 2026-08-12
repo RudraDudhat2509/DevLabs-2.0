@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime
 from typing import Annotated, TypedDict
 from pydantic import BaseModel, Field, field_validator
-from cryptography.fernet import Fernet
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -18,10 +17,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
-from config import ADMIN_CODE, SYSTEM_PROMPT, FILE_ENCRYPTION_KEY
+from config import ADMIN_CODE, SYSTEM_PROMPT
 
-cipher_suite = Fernet(FILE_ENCRYPTION_KEY)
-DATA_FILE = "customer_data.enc"
+DATA_FILE = "customer_data.json"
 
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -100,29 +98,24 @@ def search_store_policies(search_query: str) -> str:
 
 @tool(args_schema=store_credit_input)
 def issue_store_credit(user_id: str, change: int) -> str:
-    """Issues store credit to a user's account using an encrypted local file."""
+    """Issues store credit to a user's account."""
     try:
         if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "rb") as f:
-                encrypted_data = f.read()
-                decrypted_text = cipher_suite.decrypt(encrypted_data).decode('utf-8')
-                ledger = json.loads(decrypted_text)
+            with open(DATA_FILE, "r") as f:
+                ledger = json.load(f)
         else:
             ledger = {}
 
         current_balance = ledger.get(user_id, 0)
         ledger[user_id] = current_balance + change
 
-        json_data = json.dumps(ledger).encode('utf-8')
-        encrypted_output = cipher_suite.encrypt(json_data)
-
-        with open(DATA_FILE, "wb") as f:
-            f.write(encrypted_output)
+        with open(DATA_FILE, "w") as f:
+            json.dump(ledger, f)
 
         return f"SUCCESS: {change} credits issued to {user_id}."
 
     except Exception as e:
-        return f"SYSTEM ERROR: Failed to process secure transaction. {str(e)}"
+        return f"SYSTEM ERROR: Failed to process transaction. {str(e)}"
 
 @tool(args_schema=order_tracking_input)
 def track_order(order_id: str) -> str:
