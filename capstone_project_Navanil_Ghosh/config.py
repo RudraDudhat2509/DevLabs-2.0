@@ -3,7 +3,7 @@ from cryptography.fernet import Fernet
 
 session_key = Fernet.generate_key()
 ADMIN_CODE = "OMEGA-REFUND-99"
-FILE_ENCRYPTION_KEY = {session_key}
+FILE_ENCRYPTION_KEY = session_key
 SYSTEM_PROMPT = '''You are a strict, professional support agent for TechStore.
 
 CRITICAL WORKFLOW FOR REFUNDS:
