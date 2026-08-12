@@ -1,6 +1,8 @@
 import json
 import os
+import asyncio
 import pandas as pd
+from datetime import datetime
 from typing import Annotated, TypedDict
 from pydantic import BaseModel, Field, field_validator
 from cryptography.fernet import Fernet
@@ -9,16 +11,15 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_ollama import ChatOllama
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
-# Import configuration
 from config import ADMIN_CODE, SYSTEM_PROMPT, FILE_ENCRYPTION_KEY
 
-# Initialize encryption
 cipher_suite = Fernet(FILE_ENCRYPTION_KEY)
 DATA_FILE = "customer_data.enc"
 
@@ -43,7 +44,6 @@ class policy_input(BaseModel):
 class store_credit_input(BaseModel):
     user_id: str = Field(description='The unique identifier of the user')
     change: int = Field(description='The amount of credits to be awarded to the user (1 credit = 1 Rs.)')
-    admin_code: str = Field(description='The internal authorization code required to process this transaction.')
 
     @field_validator('change')
     @classmethod
@@ -57,9 +57,9 @@ class order_tracking_input(BaseModel):
 
 @tool(args_schema=inventory_input)
 def fetch_inventory(item_name: str, color: str = "") -> str:
-    """Check the inventory for an item, its stock levels, and its price.In case of any refund use this tool to find the item's value"""
+    """Check the inventory for an item, its stock levels, and its price."""
     try:
-        df = pd.read_csv("inventory.csv")
+        df = pd.read_csv("inventory.csv", skipinitialspace=True)
         matches = df[df['name'].str.contains(item_name, case=False, na=False)]
         if color:
             matches = matches[matches['color'].str.contains(color, case=False, na=False)]
@@ -70,7 +70,6 @@ def fetch_inventory(item_name: str, color: str = "") -> str:
         return f"Inventory results for '{item_name}':\n" + "\n".join(result_lines)
     except Exception as e:
         return f"SYSTEM ERROR: Failed to query inventory. {str(e)}"
-
 
 try:
     loader = TextLoader("policy.txt", encoding="utf-8")
@@ -100,11 +99,8 @@ def search_store_policies(search_query: str) -> str:
         return f"SYSTEM ERROR: Vector search failed. {str(err)}"
 
 @tool(args_schema=store_credit_input)
-def issue_store_credit(user_id: str, change: int, admin_code: str) -> str:
+def issue_store_credit(user_id: str, change: int) -> str:
     """Issues store credit to a user's account using an encrypted local file."""
-    if admin_code != ADMIN_CODE:
-        return "SYSTEM ERROR: Unauthorized. Invalid admin override code."
-
     try:
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, "rb") as f:
@@ -132,7 +128,7 @@ def issue_store_credit(user_id: str, change: int, admin_code: str) -> str:
 def track_order(order_id: str) -> str:
     """Track the status, items, and price of a customer's order using the order ID."""
     try:
-        df = pd.read_csv("orders.csv")
+        df = pd.read_csv("orders.csv", skipinitialspace=True)
 
         df['order_id'] = df['order_id'].astype(str)
         match = df[df['order_id'] == str(order_id)]
@@ -141,10 +137,14 @@ def track_order(order_id: str) -> str:
             return f"Order lookup failed: No order found with ID '{order_id}'."
 
         row = match.iloc[0]
+        
+        purchase_date = datetime.strptime(row['purchase_date'], '%Y-%m-%d')
+        days_since = (datetime.now() - purchase_date).days
+
         return (f"Order ID: {order_id}\n"
                 f"Item: {row['item_name']}\n"
                 f"Status: {row['status']}\n"
-                f"Purchase Date: {row['purchase_date']}\n"
+                f"Days Since Purchase: {days_since}\n"
                 f"Price: {row['price']} Rs.")
     except Exception as e:
         return f"SYSTEM ERROR: Failed to query orders database. {str(e)}"
@@ -154,8 +154,12 @@ tools = [fetch_inventory, search_store_policies, issue_store_credit, track_order
 llm_with_tools = llm.bind_tools(tools)
 
 def chat_node(state: AgentState) -> dict:
-    sys_msg = SystemMessage(content=SYSTEM_PROMPT)
-    messages = [sys_msg] + state['messages']
+    dynamic_sys_prompt = SYSTEM_PROMPT + f"\n\nToday's date is: {datetime.now().strftime('%Y-%m-%d')}"
+    sys_msg = SystemMessage(content=dynamic_sys_prompt)
+
+    filtered_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+    messages = [sys_msg] + filtered_messages
+    
     response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
 
@@ -167,11 +171,15 @@ app.add_node("tools", tool_node)
 app.add_edge(START, "chat_node")
 app.add_conditional_edges("chat_node", tools_condition)
 app.add_edge("tools", "chat_node")
-graph = app.compile()
+
+memory = MemorySaver()
+graph = app.compile(checkpointer=memory)
 
 async def chat_loop():
-    print("\n=== TechStore Guarded Domain Agent Started ===")
     print("Type 'exit' to quit.\n")
+
+    config = {"configurable": {"thread_id": "session_1"}}
+    
     while True:
         user_input = input("User: ")
         if user_input.strip().lower() in ['exit', 'quit']:
@@ -180,7 +188,8 @@ async def chat_loop():
         if not user_input.strip():
             continue
 
-        final_state = await graph.ainvoke({"messages": [HumanMessage(content=user_input)]})
+        final_state = await graph.ainvoke({"messages": [HumanMessage(content=user_input)]}, config)
         print("\nAgent:", final_state["messages"][-1].content)
 
-asyncio.run(chat_loop())
+if __name__ == "__main__":
+    asyncio.run(chat_loop())
